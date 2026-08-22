@@ -179,3 +179,18 @@ RP2040 跑 XIP，每個位址都在編譯時就烙進機器碼裡，所以搬檔
 ## 授權
 
 GPL-3.0（見 `LICENSE`）。`TFT_DMA.cpp/.h` 取自 PicoApple2。
+
+## 選單圖示（retro-loader）
+
+`assets/KeyboardTester.ino.RAW` 是給 [rp2040-retro-loader](https://github.com/pondahai/rp2040-retro-loader)
+選單用的封面圖：96x96 RGB565 big-endian、無標頭、固定 18432 bytes。載入器只用檔案長度驗證，
+所以長度必須剛好。
+
+用法：把它跟 `KeyboardTester.ino.uf2` 一起放 SD 卡**根目錄**（不支援子目錄）。檔名規則是
+UF2 去掉副檔名再接 `.RAW`，也就是 `KeyboardTester.ino.uf2` 配 `KeyboardTester.ino.RAW`。
+
+要從原圖重新產生：
+
+```bash
+python ../rp2040-retro-loader/tools/make_thumb.py assets/kbtester_icon.jpg --fit -o assets/KeyboardTester.ino.RAW
+```
