@@ -1,0 +1,21 @@
+# ---- 受著作權的 ROM 與其衍生物：絕對不入版控 ----
+*.rom
+*.ROM
+*.rom.*
+*.ROM.*
+# rom2h.py 產生的 C 標頭檔只是 ROM 的另一種編碼，同樣不能公開
+apple2_char_rom.h
+
+# ---- 建置產物 ----
+build/
+build_offset/
+*.uf2
+*.elf
+*.bin
+*.hex
+*.map
+
+# ---- 雜項 ----
+.vscode/
+*.bak
+Thumbs.db
