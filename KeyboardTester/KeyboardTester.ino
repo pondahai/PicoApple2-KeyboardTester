@@ -355,6 +355,12 @@ void drawKeyboard() {
 // ============================================================================
 // 轉換鏈（自 PicoApple2.ino 原封搬移；joy_mode 固定為 false、無選單）
 // 回傳實際會餵給 Apple II 閂鎖的 byte，0 表示不送鍵。
+//
+// 與主韌體的唯一差異：208（CapsLock）在主韌體是 g_caps_lock = !g_caps_lock，
+// 這裡只回 0、不切狀態。因為 drawInfo() 每次重畫都會呼叫本函式三次
+// （PLAIN / SHIFT / CTRL 各一次）純粹為了顯示，帶副作用的話畫一次面板就會
+// 把 CapsLock 翻三次。這也符合檢查器既有的原則 —— Fn 組合鍵同樣只解讀不執行。
+// 該鍵真正的作用改由畫面標註出來。
 // ============================================================================
 bool g_caps_lock = true;
 
@@ -366,6 +372,8 @@ uint8_t translate(int r, int c, bool shift, bool ctrl) {
   } else if (k == 203) k = 0x0D;
   else if (k == 207) k = 0x1B;
   else if (k == 204) k = 0x08;
+  else if (k == 206) k = 0x09;   // TAB
+  else if (k == 208) k = 0;      // CAPS LOCK：主韌體在此切 g_caps_lock，這裡只顯示
   else if (ctrl) { if (k >= 'a' && k <= 'z') k = (k - 32) & 0x1F; else if (k >= '@' && k <= '_') k = k & 0x1F; else k = 0; }
   else { if (g_caps_lock && !shift && k >= 'a' && k <= 'z') k -= 32; else if (g_caps_lock && shift && k >= 'A' && k <= 'Z') k += 32; }
   return k;
@@ -474,6 +482,10 @@ void drawInfo() {
     drawString(4, y + 40, "SENDS PLAIN " + describe(translate(r, c, false, false)), 0x07E0, C_BG);
     drawString(4, y + 52, "      SHIFT " + describe(translate(r, c, true, false)), 0x07E0, C_BG);
     drawString(4, y + 64, "      CTRL  " + describe(translate(r, c, false, true)), 0x07E0, C_BG);
+
+    // 208 的實際作用是切 CapsLock，本程式不執行，標出來（同 Fn 組合鍵的處理）
+    if (keymap_base[r][c] == 208)
+      drawString(4, y + 78, "= CAPS LOCK TOGGLE (NOT EXECUTED)", 0xFC00, C_BG);
 
     // Fn 按住時，把組合鍵的意義解讀出來（僅顯示，不執行）
     if (g_fn_held) {
