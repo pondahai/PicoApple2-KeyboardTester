@@ -46,6 +46,51 @@ TFT_DMA tft(PIN_DISPLAY_CS, PIN_DISPLAY_DC, PIN_DISPLAY_RST, PIN_DISPLAY_MOSI, P
   #warning "apple2_char_rom.h not found - text will be blank. Run tools/rom2h.py"
 #endif
 
+// ---- 補字：Apple II 字元 ROM 沒有的字形 ------------------------------------
+// 那顆 ROM 只有 128 個相異字形（2048 bytes 裡上下半完全重複），內容是經典的
+// 大寫 64 字集：@ A-Z [ \ ] ^ _ 與 ASCII 0x20-0x3F。沒有小寫，也沒有 ` ~ { } |。
+// drawChar() 把 0x60~0x7E 減 32 折進去，小寫折成大寫是刻意的，但 ` ~ { } |
+// 會分別撞到 @ ^ [ ] \ 的格子上，畫出來是別的字。
+//
+// 解法：開一份 RAM 字型，把這五個字形塞進 ROM 用不到的 slot 1~5。
+// 為什麼是 1~5：drawChar() 的折疊只會產生 0~31 與 64~127 兩段，而 0~31 這段
+// 在 ROM 裡只是 64~95 的重複、且正常字串不含控制碼，所以空著沒人用。
+// 畫的時候把 ` 轉成 GLYPH_BQUOTE、~ 轉成 GLYPH_TILDE…，就繞過折疊直接命中自繪字形。
+#define GLYPH_BQUOTE 1
+#define GLYPH_TILDE  2
+#define GLYPH_LBRACE 3
+#define GLYPH_RBRACE 4
+#define GLYPH_PIPE   5
+
+// 7 px 寬（bit6~bit0）、8 列。ROM 原生字形高位元是反白旗標，這裡一律留 0。
+static const uint8_t EXTRA_GLYPHS[5][8] = {
+  /* ` */ { 0x00, 0x10, 0x08, 0x00, 0x00, 0x00, 0x00, 0x00 },
+  /* ~ */ { 0x00, 0x00, 0x00, 0x32, 0x4C, 0x00, 0x00, 0x00 },
+  /* { */ { 0x00, 0x0C, 0x10, 0x10, 0x20, 0x10, 0x10, 0x0C },
+  /* } */ { 0x00, 0x18, 0x04, 0x04, 0x02, 0x04, 0x04, 0x18 },
+  /* | */ { 0x00, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08 },
+};
+
+// drawChar() 折疊後最大索引是 127，所以只需要前 1024 bytes。
+static uint8_t g_font[128 * 8];
+
+void initFont() {
+  memcpy(g_font, APPLE2_CHAR_ROM, sizeof(g_font));
+  memcpy(&g_font[GLYPH_BQUOTE * 8], EXTRA_GLYPHS, sizeof(EXTRA_GLYPHS));
+}
+
+// 把 ROM 畫不出來的字換成自繪字形的控制碼；其餘原樣通過。
+char fontSubst(char c) {
+  switch (c) {
+    case '`': return (char)GLYPH_BQUOTE;
+    case '~': return (char)GLYPH_TILDE;
+    case '{': return (char)GLYPH_LBRACE;
+    case '}': return (char)GLYPH_RBRACE;
+    case '|': return (char)GLYPH_PIPE;
+    default:  return c;
+  }
+}
+
 // ============================================================================
 // 以下兩張表自 PicoApple2.ino 原封複製 —— 禁止修改
 // ============================================================================
@@ -239,7 +284,8 @@ void dumpAnalysis() {
 // ============================================================================
 void drawString(uint16_t x, uint16_t y, String s, uint16_t color, uint16_t bg) {
   s.toUpperCase();
-  for (unsigned int i = 0; i < s.length(); i++) tft.drawChar(x + (i * 7), y, s[i], color, bg, APPLE2_CHAR_ROM);
+  for (unsigned int i = 0; i < s.length(); i++)
+    tft.drawChar(x + (i * 7), y, fontSubst(s[i]), color, bg, g_font);
 }
 
 #define C_BG      0x0000
@@ -251,6 +297,35 @@ void drawString(uint16_t x, uint16_t y, String s, uint16_t color, uint16_t bg) {
 #define C_DONE    0x0010  // 深藍：已學到
 #define C_LABEL   0xFFE0
 
+// 外框：這顆實體鍵在 Apple II+ 上存不存在。跟填色（學習/按壓狀態）是兩個獨立
+// 維度，所以外框刻意用中性灰階，不跟紅/綠/橘/藍那幾個狀態色搶顏色。
+#define C_EDGE_A2    0xAD55  // 淺灰：Apple II+ 原生鍵
+#define C_EDGE_EXTRA 0x3186  // 暗灰：這台機器加的鍵
+
+// PicoApple2 模擬的是 Apple II+（apple2_sys.rom 為 $D000-$FFFF 共 12KB，
+// 字元 ROM 也是無小寫的大寫 64 字集）。II+ 的鍵盤是：
+//
+//   ESC 1 2 3 4 5 6 7 8 9 0 : -  RESET
+//       Q W E R T Y U I O P      REPT  RETURN
+//   CTRL A S D F G H J K L ;  <- ->
+//   SHIFT Z X C V B N M , . /  SHIFT
+//                 SPACE
+//
+// 下面這些是這台 64 鍵機器多出來、II+ 沒有的鍵。反過來 II+ 有而這台沒有的
+// （RESET / REPT / 獨立的 : 鍵）不在檢查器的範圍內，所以兩邊不是一一對應。
+const char* const EXTRA_KEYS[] = {
+  "BS", "TAB", "[", "]", "CAP", "'", "\\", "UP",
+  "FN", "ALT", "PGU", "`", "=", "PGD", "DEL", "DN"
+};
+
+// 收 label 而不是 const PhysKey&：.ino 的前處理會把函式原型自動提到檔案最
+// 上方，那個位置 PhysKey 還沒宣告，用它當參數型別會編不過。
+bool isAppleIIPlusKey(const char* label) {
+  for (unsigned i = 0; i < sizeof(EXTRA_KEYS) / sizeof(EXTRA_KEYS[0]); i++)
+    if (strcmp(label, EXTRA_KEYS[i]) == 0) return false;
+  return true;
+}
+
 void drawKey(int r, int i, uint16_t bg, uint16_t fg) {
   const PhysKey& k = PHYS_ROW[r][i];
   int x = physSlotX(r, i);
@@ -261,6 +336,14 @@ void drawKey(int r, int i, uint16_t bg, uint16_t fg) {
   int tx = x + (w - len * 7) / 2;
   if (tx < x + 1) tx = x + 1;
   drawString(tx, y + 7, k.label, fg, bg);
+
+  // 外框最後才畫。三個字的鍵帽（ESC / CAP / PGU…）文字寬 21px、鍵寬 22px，
+  // 置中後會壓到最右那一行像素，先畫外框的話會被文字啃掉一角。
+  uint16_t edge = isAppleIIPlusKey(k.label) ? C_EDGE_A2 : C_EDGE_EXTRA;
+  tft.drawRect(x, y, w, 1, edge);
+  tft.drawRect(x, y + KH - 1, w, 1, edge);
+  tft.drawRect(x, y, 1, KH, edge);
+  tft.drawRect(x + w - 1, y, 1, KH, edge);
 }
 
 void drawKeyboard() {
@@ -312,6 +395,7 @@ String describe(uint8_t v) {
   const char* n = rawName(v);
   if (n) return String(n);
   char buf[16];
+  // ` ~ { } | 這幾個字 ROM 沒有字形，由 EXTRA_GLYPHS 補上，所以照原樣印就行。
   if (v >= 32 && v < 127) snprintf(buf, sizeof(buf), "'%c' 0x%02X", (char)v, v);
   else snprintf(buf, sizeof(buf), "0x%02X", v);
   return String(buf);
@@ -447,6 +531,7 @@ void setup() {
   // 自 PicoApple2.ino setup1() 原封搬移 —— 少了它畫面就是全黑。
   pinMode(PIN_DISPLAY_BL, OUTPUT); digitalWrite(PIN_DISPLAY_BL, LOW);
 
+  initFont();
   tft.begin();
   gpio_put(PIN_DISPLAY_RST, 0); delay(100); gpio_put(PIN_DISPLAY_RST, 1); delay(100);
   tft.writeCommand(0x01); delay(150);
