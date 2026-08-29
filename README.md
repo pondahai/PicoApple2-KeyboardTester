@@ -188,9 +188,24 @@ python tools/rom2h.py /path/to/apple2_char.rom
 arduino-cli compile --fqbn rp2040:rp2040:rpipico KeyboardTester
 ```
 
-### 3. 偏移版（可選）
+### 3. 偏移版 / standalone 版（搭配 retro-loader）
 
-若板子的前 16KB 放了 [rp2040-retro-loader](https://github.com/pondahai/rp2040-retro-loader) 這類 SD 卡載入器，要改連結到 `0x10004000` 才不會蓋掉它：
+若板子的前 16KB 放了 [rp2040-retro-loader](https://github.com/pondahai/rp2040-retro-loader) 這類 SD 卡載入器，
+要改連結到 `0x10004000` 才不會蓋掉它。
+
+**一行搞定**（Windows）：
+
+```bash
+build_offset.bat
+```
+
+腳本會依序做完下面步驟 3、4 的全部事情：產生 linker script → 偏移編譯 → 檢查 flash 佈局 →
+合併 trampoline → 順便把選單圖示複製成配對的檔名。載入器倉庫預設找 `..
+p2040-retro-loader`，
+放別處就 `build_offset.bat <loader repo path>`。`arduino-cli` 會自動找 Arduino IDE 2.x 內建的那支，
+要指定別的就先設 `ARDUINO_CLI_PATH`。
+
+以下是它實際做的事，手動跑或想改流程時看：
 
 ```bash
 python loader_offset/gen_app_ld.py    # 依你的 arduino-pico 版本重新產生 linker script
@@ -200,7 +215,35 @@ arduino-cli compile --fqbn rp2040:rp2040:rpipico \
 python loader_offset/check_flash_layout.py build_offset/KeyboardTester.ino.uf2
 ```
 
-產出的 uf2 只寫 `0x10004000` 之後的區塊，前 16KB 的載入器原封不動 —— 直接拖進 BOOTSEL 磁碟即可。
+產出的 `build_offset/KeyboardTester.ino.uf2` 只含 `0x10004000` 之後的區塊，前 16KB 是空的。
+它**不能單獨用 USB 燒錄** —— `gen_app_ld.py` 會主動丟掉 `.boot2`，而 RP2040 的 boot ROM
+只認 flash 最前面 256 bytes，那裡沒東西就開不了機。這份檔案只在「載入器已經在板子上」時才成立。
+
+### 4. 合併 trampoline —— 兩種用法都吃得下的那一份
+
+把載入器的 trampoline（一小段落在 `0x10000000` 的 boot2 + 跳轉樁）接在偏移本體前面：
+
+```bash
+python ../rp2040-retro-loader/tools/merge_uf2.py ../rp2040-retro-loader/build/trampoline.uf2 build_offset/KeyboardTester.ino.uf2 -o build_offset/KeyboardTester_standalone.uf2
+```
+
+合併版兩條路都走得通：
+
+* **USB BOOTSEL 拖進去** → 跳板落在 `0x10000000`，開機後跳 `0x10004000`
+* **放進 SD 卡給載入器** → 載入器丟掉 `0x10004000` 以下的 block，其餘照寫，載入器本身不會被蓋掉
+
+所以 SD 卡上放合併版就好，不必為兩種用法各準備一個檔案。
+
+三種產物的定位：
+
+| 檔案 | USB 直燒 | 放 SD 給 loader |
+|---|---|---|
+| 一般版（步驟 2，`0x10000000`） | ✅ | ❌ 會蓋掉載入器 |
+| 偏移版 `KeyboardTester.ino.uf2` | ❌ 前 16KB 空的，不開機 | ✅ |
+| **standalone `KeyboardTester_standalone.uf2`** | ✅ | ✅ |
+
+`check_flash_layout.py` 是驗**裸偏移本體**用的，對合併版會回報「image 起點是 `0x10000000`，應該是 `0x10004000`」——
+那是正常的，別拿它驗 standalone。
 
 RP2040 跑 XIP，每個位址都在編譯時就烙進機器碼裡，所以搬檔案沒用，映像必須重新連結。
 
@@ -216,6 +259,7 @@ GPL-3.0（見 `LICENSE`）。`TFT_DMA.cpp/.h` 取自 PicoApple2。
 
 用法：把它跟 `KeyboardTester.ino.uf2` 一起放 SD 卡**根目錄**（不支援子目錄）。檔名規則是
 UF2 去掉副檔名再接 `.RAW`，也就是 `KeyboardTester.ino.uf2` 配 `KeyboardTester.ino.RAW`。
+若放的是 standalone 版，圖示要跟著改名成 `KeyboardTester_standalone.RAW`。
 
 要從原圖重新產生：
 
