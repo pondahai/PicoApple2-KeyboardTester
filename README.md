@@ -268,7 +268,9 @@ python tools/rom2h.py /path/to/apple2_char.rom
 
 產生的 `KeyboardTester/apple2_char_rom.h` 已列入 `.gitignore` —— 它只是 ROM 的另一種編碼，同樣不能公開。
 
-沒有 ROM 也能編譯（`__has_include` 會退回全零佔位），只是畫面沒有文字。
+跟 PicoApple2 主專案用的是同一顆：主專案已就緒的話，直接 `python tools/rom2h.py ../PicoApple2/apple2_core/src/apple2_char.rom` 即可。
+
+沒有 ROM 也能編譯（`__has_include` 會退回全零佔位），只是畫面沒有文字、只剩鍵盤框框。編譯時出現 `apple2_char_rom.h not found` 警告就是這個情況 —— 換電腦 clone 後最容易漏掉。
 
 ### 2. 編譯
 
