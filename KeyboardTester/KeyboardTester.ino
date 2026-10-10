@@ -32,7 +32,22 @@
 #define DATA_OUT_PIN     15
 #define LATCH_PIN        14
 #define CLOCK_PIN        26
+
+// KBD_SHARED_DATA = 1：硬體改過，165 QH 經 1 kΩ 接到 GP15，與 595 SER 共用一支腳；
+// GP27 割線空出（留給 ADC）。寫 595 時 GP15 為輸出（隔 1 kΩ 蓋過 QH），
+// 讀 165 時切成輸入。= 0：原接線，QH 接 GP27。
+#ifndef KBD_SHARED_DATA
+#define KBD_SHARED_DATA  0
+#endif
+
+#define FREE_ADC_PIN     27
+#if KBD_SHARED_DATA
+#define DATA_IN_PIN      DATA_OUT_PIN
+#define KBD_MODE_STR     "kbd QH on GP15"
+#else
 #define DATA_IN_PIN      27
+#define KBD_MODE_STR     "kbd QH on GP27"
+#endif
 
 TFT_DMA tft(PIN_DISPLAY_CS, PIN_DISPLAY_DC, PIN_DISPLAY_RST, PIN_DISPLAY_MOSI, PIN_DISPLAY_SCK);
 
@@ -124,10 +139,28 @@ byte myShiftIn(uint8_t dP, uint8_t cP) {
   return data;
 }
 
+// 共用資料腳時的方向切換；原接線下為空操作。
+inline void kbdDataOut() {
+#if KBD_SHARED_DATA
+  gpio_set_dir(DATA_OUT_PIN, GPIO_OUT);
+#endif
+}
+inline void kbdDataIn() {
+#if KBD_SHARED_DATA
+  gpio_set_dir(DATA_OUT_PIN, GPIO_IN); delayMicroseconds(1);  // 等 QH 經 1 kΩ 把線拉穩
+#endif
+}
+
+// 時序注意（KBD_SHARED_DATA=1）：CLOCK 共用，讀 165 的 8 個時脈也會把 QH 推進 595
+// 移位暫存器。這裡每一列都是「寫滿 16 bit → LATCH↑」之後才讀 165，下一次 LATCH↑
+// 之前一定又重寫滿 16 bit；列內第二次 LATCH↑（165 載入用）發生在讀取之前，
+// 鎖存的仍是剛寫入的資料。結尾那一下 CLOCK 也只推垃圾進移位暫存器，不會被鎖存。
 void scanMatrix() {
   for (int row = 0; row < 8; row++) {
+    kbdDataOut();
     byte rS = (1 << row); fastWrite(LATCH_PIN, 0); shiftOut(DATA_OUT_PIN, CLOCK_PIN, MSBFIRST, 0); shiftOut(DATA_OUT_PIN, CLOCK_PIN, MSBFIRST, rS);
     fastWrite(LATCH_PIN, 1); delayMicroseconds(5); fastWrite(LATCH_PIN, 0); delayMicroseconds(1); fastWrite(LATCH_PIN, 1);
+    kbdDataIn();
     byte colData = myShiftIn(DATA_IN_PIN, CLOCK_PIN);
     for (int col = 0; col < 8; col++) keyState[row][7 - col] = (colData & (1 << col));
   }
@@ -449,6 +482,7 @@ void drawInfo() {
   tft.drawRect(0, INFO_Y, 320, 240 - INFO_Y, C_BG);
   drawString(4, INFO_Y, g_mode == 0 ? "MODE: FREE" : "MODE: GUIDED", C_LABEL, C_BG);
   drawString(116, INFO_Y, "F/G/S/D/M/R", 0x8410, C_BG);
+  drawString(232, INFO_Y, KBD_SHARED_DATA ? "QH GP15" : "QH GP27", 0x8410, C_BG);
 
   int y = INFO_Y + 14;
   if (g_mode == 1) {
@@ -532,7 +566,13 @@ void setup() {
   gpio_init(DATA_OUT_PIN); gpio_set_dir(DATA_OUT_PIN, GPIO_OUT);
   gpio_init(LATCH_PIN);    gpio_set_dir(LATCH_PIN, GPIO_OUT);
   gpio_init(CLOCK_PIN);    gpio_set_dir(CLOCK_PIN, GPIO_OUT);
+#if KBD_SHARED_DATA
+  gpio_disable_pulls(DATA_OUT_PIN);  // 預設下拉 ~50k 會和 1 kΩ 分壓
+  gpio_set_dir(DATA_OUT_PIN, GPIO_IN);  // 平時停在輸入
+  gpio_init(FREE_ADC_PIN); gpio_set_dir(FREE_ADC_PIN, GPIO_IN); gpio_disable_pulls(FREE_ADC_PIN);
+#else
   gpio_init(DATA_IN_PIN);  gpio_set_dir(DATA_IN_PIN, GPIO_IN);
+#endif
 
   for (int i = 0; i < PHYS_TOTAL; i++) learned[i] = -1;
   resolvePhysMap();
@@ -571,6 +611,7 @@ void setup() {
   drawInfo();
 
   Serial.println("PicoApple2 Keyboard Tester");
+  Serial.println(KBD_MODE_STR);
   Serial.println("F=free  G=guided  S=skip  D=dump  M=analysis  R=reset");
   dumpAnalysis();
 }

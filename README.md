@@ -239,7 +239,22 @@ Raspberry Pi Pico (RP2040) + ILI9341 320×240 SPI 顯示器 + 8×8 鍵盤矩陣�
 | 用途 | GPIO |
 |---|---|
 | 矩陣 DATA_OUT / LATCH / CLOCK / DATA_IN | 15 / 14 / 26 / 27 |
-| 顯示器 SCK / MOSI / CS / DC / RST / BL | 18 / 19 / 17 / 20 / 21 / 22 |
+| 顯示器 SCK / MOSI / CS / DC / RST / BL | 18 / 19 / 17 / 20 / 21 / 22 |
+
+### 選配硬體修改：QH 與 SER 共用 GP15（`KBD_SHARED_DATA`）
+
+為了空出 GP27 當 ADC：165 的 QH 割離 GP27，改串 1 kΩ 接到 GP15，與 595 的 SER 共用。
+寫 595 時 GP15 為輸出（隔著 1 kΩ 蓋過 QH），讀 165 前切成輸入、等 1 µs 再讀；GP15 關掉內建下拉
+（約 50k，會和 1 kΩ 分壓），GP27 設成無上下拉的輸入。
+
+- 編譯開關 `KBD_SHARED_DATA`，預設 0 = 原接線。改過硬體的板子要編 1：
+  `arduino-cli compile ... --build-property "compiler.cpp.extra_flags=-DKBD_SHARED_DATA=1"`，
+  或 cmd 下 `set "KBD_SHARED_DATA=1" & build_offset.bat`。
+- 燒錄後序列埠開機會印 `kbd QH on GP15` / `kbd QH on GP27`，畫面資訊列右上角顯示 `QH GP15` / `QH GP27`。
+- 時序：CLOCK 共用，讀 165 的 8 個時脈也會把 QH 推進 595 移位暫存器。`scanMatrix()` 每列都是
+  「寫滿 16 bit → LATCH↑ → 165 載入（第二次 LATCH↑，此時移位暫存器仍是剛寫的資料）→ 讀 8 bit」，
+  下一次 LATCH↑ 前一定重新寫滿，所以垃圾永遠不會被鎖存。**改掃描順序時要守住這條**：
+  讀完 165 之後不可以沒重寫就拉 LATCH。
 
 ## 建置
 
