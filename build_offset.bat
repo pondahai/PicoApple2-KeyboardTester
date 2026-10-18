@@ -19,6 +19,8 @@ title KeyboardTester Offset Build
 ::     set "KBD_SHARED_DATA=1" & build_offset.bat
 ::         builds for the modded board (165 QH on GP15 via 1k, GP27 freed).
 ::         Default 0 = original wiring (QH on GP27).
+::     set "KBD_CLK_ON_LCD_DC=1" & build_offset.bat
+::         CLOCK moved to LCD D/C (GP20), GP26 freed. Default 0 = GP26.
 ::
 :: Outputs (all under build_offset\):
 ::     KeyboardTester.ino.uf2          body only, first 16KB empty - NOT flashable alone
@@ -35,7 +37,8 @@ set "OUT_DIR=%PROJECT_ROOT%build_offset"
 set "OFFSET_LD=%PROJECT_ROOT%loader_offset\memmap_app_arduino.ld"
 set "FQBN=rp2040:rp2040:rpipico"
 if "%KBD_SHARED_DATA%"=="" set "KBD_SHARED_DATA=0"
-echo Keyboard mode: KBD_SHARED_DATA=%KBD_SHARED_DATA%
+if "%KBD_CLK_ON_LCD_DC%"=="" set "KBD_CLK_ON_LCD_DC=0"
+echo Keyboard mode: KBD_SHARED_DATA=%KBD_SHARED_DATA% KBD_CLK_ON_LCD_DC=%KBD_CLK_ON_LCD_DC%
 
 :: --- locate arduino-cli ---------------------------------------------------
 :: Override by setting ARDUINO_CLI_PATH before calling this script. Otherwise
@@ -90,7 +93,7 @@ echo ========================================================
 ::     verbatim from platform.txt.
 "%ARDUINO_CLI_PATH%" compile --fqbn %FQBN% ^
     --build-property "recipe.hooks.linking.prelink.1.pattern=\"{runtime.tools.pqt-python3.path}/python3\" -I \"{runtime.platform.path}/tools/simplesub.py\" --input \"%OFFSET_LD%\" --out \"{build.path}/memmap_default.ld\" --sub __FLASH_LENGTH__ {build.flash_length} --sub __EEPROM_START__ {build.eeprom_start} --sub __FS_START__ {build.fs_start} --sub __FS_END__ {build.fs_end} --sub __RAM_LENGTH__ {build.ram_length} --sub __PSRAM_LENGTH__ {build.psram_length}" ^
-    --build-property "compiler.cpp.extra_flags=-DKBD_SHARED_DATA=%KBD_SHARED_DATA%" ^
+    --build-property "compiler.cpp.extra_flags=-DKBD_SHARED_DATA=%KBD_SHARED_DATA% -DKBD_CLK_ON_LCD_DC=%KBD_CLK_ON_LCD_DC%" ^
     --output-dir "%OUT_DIR%" "%PROJECT_ROOT%KeyboardTester"
 if %errorlevel% neq 0 ( echo [ERROR] Arduino build failed. & pause & exit /b 1 )
 
@@ -135,7 +138,7 @@ echo ========================================================
 echo SUCCESS
 echo ========================================================
 echo   %OUT_DIR%\KeyboardTester_standalone.uf2
-echo   (KBD_SHARED_DATA=%KBD_SHARED_DATA%)
+echo   (KBD_SHARED_DATA=%KBD_SHARED_DATA% KBD_CLK_ON_LCD_DC=%KBD_CLK_ON_LCD_DC%)
 echo.
 echo   Put it in the SD card root for the loader (with the .RAW next to it),
 echo   or flash it directly:

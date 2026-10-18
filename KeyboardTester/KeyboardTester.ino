@@ -12,7 +12,7 @@
 // 兩種模式（用序列埠切換）：
 //   [F] FREE   自由按壓：按任何鍵，畫面即顯示它掃到的 [r][c]、表中原始值、
 //              以及經過 Shift/Ctrl/CapsLock 轉換鏈後真正送出的 byte。
-//   [G] GUIDED 導引學習：畫面依序高亮 64 顆實體鍵，你照著按，程式記錄
+//   [G] GUIDED 導引學習：畫面依序高亮 58 顆實體鍵，你照著按，程式記錄
 //              「這顆實體鍵 → 掃到哪個 [r][c]」，走完一輪即得到完整真值表。
 //              按 [D] 可把結果以 C 陣列格式印到序列埠。
 // ============================================================================
@@ -31,7 +31,21 @@
 // ---- 鍵盤矩陣接腳（同 PicoApple2.ino）----
 #define DATA_OUT_PIN     15
 #define LATCH_PIN        14
+
+// KBD_CLK_ON_LCD_DC = 1：硬體改過，595/165 的 CLOCK 改接 LCD D/C（GP20），GP26 空出。
+// LCD 只在 CS 低時於 SCK 邊緣取樣 D/C，所以掃描時只要 SPI 已送完、CS 為高，
+// 拿 D/C 當時脈 LCD 不理；平時畫圖翻 D/C 只會讓 595/165 多移幾位，LATCH 不動就不影響輸出。
+// = 0：原接線，CLOCK 接 GP26。
+#ifndef KBD_CLK_ON_LCD_DC
+#define KBD_CLK_ON_LCD_DC 0
+#endif
+
+#define FREE_CLK_PIN     26
+#if KBD_CLK_ON_LCD_DC
+#define CLOCK_PIN        PIN_DISPLAY_DC
+#else
 #define CLOCK_PIN        26
+#endif
 
 // KBD_SHARED_DATA = 1：硬體改過，165 QH 經 1 kΩ 接到 GP15，與 595 SER 共用一支腳；
 // GP27 割線空出（留給 ADC）。寫 595 時 GP15 為輸出（隔 1 kΩ 蓋過 QH），
@@ -155,20 +169,41 @@ inline void kbdDataIn() {
 // 移位暫存器。這裡每一列都是「寫滿 16 bit → LATCH↑」之後才讀 165，下一次 LATCH↑
 // 之前一定又重寫滿 16 bit；列內第二次 LATCH↑（165 載入用）發生在讀取之前，
 // 鎖存的仍是剛寫入的資料。結尾那一下 CLOCK 也只推垃圾進移位暫存器，不會被鎖存。
+// 慢速 bit-bang 寫 595（MSB first，半週期 1 µs）。CLOCK 接在 LCD D/C 上時不能用
+// Arduino shiftOut()：太快，且 D/C 走線較長。
+void shiftOutSlow(uint8_t dP, uint8_t cP, uint8_t val) {
+  for (int i = 7; i >= 0; i--) {
+    fastWrite(dP, (val >> i) & 1); delayMicroseconds(1);
+    fastWrite(cP, 1); delayMicroseconds(1); fastWrite(cP, 0);
+  }
+}
+
+// 時序注意（KBD_CLK_ON_LCD_DC=1）：呼叫端（loop）是單核心、所有 TFT 繪圖都是阻塞式，
+// 所以 scanMatrix() 執行時不會有繪圖進行中；這裡仍先等 SPI/DMA 送完、再拉一次 CS 高保險，
+// 並記下 D/C 電位、掃完還原，讓 TFT_DMA 的狀態不變。
 void scanMatrix() {
+#if KBD_CLK_ON_LCD_DC
+  tft.waitTransferDone();
+  gpio_put(PIN_DISPLAY_CS, 1);
+  bool dcSaved = gpio_get_out_level(PIN_DISPLAY_DC);
+  fastWrite(CLOCK_PIN, 0);
+#endif
   for (int row = 0; row < 8; row++) {
     kbdDataOut();
-    byte rS = (1 << row); fastWrite(LATCH_PIN, 0); shiftOut(DATA_OUT_PIN, CLOCK_PIN, MSBFIRST, 0); shiftOut(DATA_OUT_PIN, CLOCK_PIN, MSBFIRST, rS);
+    byte rS = (1 << row); fastWrite(LATCH_PIN, 0); shiftOutSlow(DATA_OUT_PIN, CLOCK_PIN, 0); shiftOutSlow(DATA_OUT_PIN, CLOCK_PIN, rS);
     fastWrite(LATCH_PIN, 1); delayMicroseconds(5); fastWrite(LATCH_PIN, 0); delayMicroseconds(1); fastWrite(LATCH_PIN, 1);
     kbdDataIn();
     byte colData = myShiftIn(DATA_IN_PIN, CLOCK_PIN);
     for (int col = 0; col < 8; col++) keyState[row][7 - col] = (colData & (1 << col));
   }
   fastWrite(CLOCK_PIN, 1); delayMicroseconds(2); fastWrite(CLOCK_PIN, 0);
+#if KBD_CLK_ON_LCD_DC
+  fastWrite(PIN_DISPLAY_DC, dcSaved);
+#endif
 }
 
 // ============================================================================
-// 實體鍵盤佈局（依照片：5 列，13 格寬，共 64 鍵 = 恰好 8x8）
+// 實體鍵盤佈局（依照片：5 列，12/12/12/12/10，共 58 鍵；8x8 矩陣有 6 格沒有實體鍵）
 // ============================================================================
 // 每顆實體鍵帶兩份資訊，刻意分開存放：
 //
@@ -187,41 +222,39 @@ struct PhysKey { const char* label; const char* name; uint8_t span; uint8_t expe
 const PhysKey PHYS_R0[] = {
   {"ESC","ESC",1,207,RC_UNKNOWN},{"1","1 !",1,'1',RC_UNKNOWN},{"2","2 @",1,'2',RC_UNKNOWN},{"3","3 #",1,'3',RC_UNKNOWN},
   {"4","4 $",1,'4',RC_UNKNOWN},{"5","5 %",1,'5',RC_UNKNOWN},{"6","6 ^",1,'6',RC_UNKNOWN},{"7","7 &",1,'7',RC_UNKNOWN},
-  {"8","8 *",1,'8',RC_UNKNOWN},{"9","9 (",1,'9',RC_UNKNOWN},{"0","0 )",1,'0',RC_UNKNOWN},{"-","- _",1,'-',RC_UNKNOWN},
-  {"BS","BACKSPACE",1,204,RC_UNKNOWN}};
+  {"8","8 *",1,'8',RC_UNKNOWN},{"9","9 (",1,'9',RC_UNKNOWN},{"0","0 )",1,'0',RC_UNKNOWN},{"BS","BACKSPACE",1,204,RC_UNKNOWN}};
 
 const PhysKey PHYS_R1[] = {
   {"TAB","TAB",1,EXP_UNKNOWN,RC(0,6)},{"Q","Q",1,'q',RC_UNKNOWN},{"W","W",1,'w',RC_UNKNOWN},{"E","E",1,'e',RC_UNKNOWN},
   {"R","R",1,'r',RC_UNKNOWN},{"T","T",1,'t',RC_UNKNOWN},{"Y","Y",1,'y',RC_UNKNOWN},{"U","U",1,'u',RC_UNKNOWN},
-  {"I","I",1,'i',RC_UNKNOWN},{"O","O",1,'o',RC_UNKNOWN},{"P","P",1,'p',RC_UNKNOWN},{"[","[ {",1,'[',RC_UNKNOWN},
-  {"]","] }",1,']',RC_UNKNOWN}};
+  {"I","I",1,'i',RC_UNKNOWN},{"O","O",1,'o',RC_UNKNOWN},{"P","P",1,'p',RC_UNKNOWN},{"-","- _",1,'-',RC_UNKNOWN}};
 
 const PhysKey PHYS_R2[] = {
   {"CAP","CAPS LOCK",1,EXP_UNKNOWN,RC(2,7)},{"A","A",1,'a',RC_UNKNOWN},{"S","S",1,'s',RC(6,0)},{"D","D",1,'d',RC_UNKNOWN},
   {"F","F",1,'f',RC_UNKNOWN},{"G","G",1,'g',RC_UNKNOWN},{"H","H",1,'h',RC_UNKNOWN},{"J","J",1,'j',RC_UNKNOWN},
-  {"K","K",1,'k',RC_UNKNOWN},{"L","L",1,'l',RC_UNKNOWN},{";","; :",1,';',RC_UNKNOWN},{"'","' \"",1,'\'',RC_UNKNOWN},
-  {"\\","\\ |",1,'\\',RC_UNKNOWN}};
+  {"K","K",1,'k',RC_UNKNOWN},{"L","L",1,'l',RC_UNKNOWN},{";","; :",1,';',RC_UNKNOWN},{"=","= +",1,'=',RC(4,5)}};
 
 const PhysKey PHYS_R3[] = {
   {"SHF","SHIFT",1,202,RC_UNKNOWN},{"Z","Z",1,'z',RC_UNKNOWN},{"X","X",1,'x',RC(7,0)},{"C","C",1,'c',RC_UNKNOWN},
   {"V","V",1,'v',RC_UNKNOWN},{"B","B",1,'b',RC_UNKNOWN},{"N","N",1,'n',RC_UNKNOWN},{"M","M",1,'m',RC_UNKNOWN},
-  {",",", <",1,',',RC_UNKNOWN},{".",". >",1,'.',RC_UNKNOWN},{"/","/ ?",1,'/',RC(7,4)},{"UP","UP ARROW",1,209,RC_UNKNOWN},
-  {"ENT","ENTER",1,203,RC_UNKNOWN}};
+  {",",", <",1,',',RC_UNKNOWN},{".",". >",1,'.',RC_UNKNOWN},{"/","/ ?",1,'/',RC(7,4)},{"ENT","ENTER",1,203,RC_UNKNOWN}};
 
+// 第 4 排 10 鍵，照 PCB 往右縮一格（CTRL 對齊 1 鍵下方），見 PHYS_ROW_OFS。
 const PhysKey PHYS_R4[] = {
   {"CTL","CTRL",1,205,RC_UNKNOWN},{"FN","FN",1,EXP_UNKNOWN,RC(3,7)},{"ALT","ALT",1,EXP_UNKNOWN,RC(7,7)},
-  {"PGU","PGUP",1,EXP_UNKNOWN,RC(5,7)},{"`","` ~",1,'`',RC_UNKNOWN},{"SPACE","SPACE",2,' ',RC_UNKNOWN},
-  {"=","= +",1,'=',RC(4,5)},{"PGD","PGDN",1,EXP_UNKNOWN,RC(6,7)},{"DEL","DELETE",1,EXP_UNKNOWN,RC(4,7)},
-  {"LFT","LEFT ARROW",1,211,RC_UNKNOWN},{"DN","DOWN ARROW",1,210,RC_UNKNOWN},{"RGT","RIGHT ARROW",1,212,RC_UNKNOWN}};
+  {"`","` ~",1,'`',RC_UNKNOWN},{"SPC","SPACE",1,' ',RC_UNKNOWN},{"'","' \"",1,'\'',RC_UNKNOWN},
+  {"[","[ {",1,'[',RC_UNKNOWN},{"]","] }",1,']',RC_UNKNOWN},{"\\","\\ |",1,'\\',RC_UNKNOWN},
+  {"DEL","DELETE",1,EXP_UNKNOWN,RC(4,7)}};
 
 const PhysKey* PHYS_ROW[5] = { PHYS_R0, PHYS_R1, PHYS_R2, PHYS_R3, PHYS_R4 };
-const uint8_t  PHYS_CNT[5] = { 13, 13, 13, 13, 12 };
-#define PHYS_TOTAL 64
+const uint8_t  PHYS_CNT[5] = { 12, 12, 12, 12, 10 };
+const uint8_t  PHYS_ROW_OFS[5] = { 0, 0, 0, 0, 1 };  // 每排起始空幾格
+#define PHYS_TOTAL 58
 
 // 幾何：320x240 橫向
 #define KX0 4
 #define KY0 6
-#define KW  22
+#define KW  24
 #define KH  22
 #define KGAP 2
 
@@ -237,7 +270,7 @@ void physFromFlat(int flat, int* r, int* i) {
 }
 
 int physSlotX(int r, int i) {
-  int slot = 0;
+  int slot = PHYS_ROW_OFS[r];
   for (int x = 0; x < i; x++) slot += PHYS_ROW[r][x].span;
   return KX0 + slot * (KW + KGAP);
 }
@@ -299,16 +332,16 @@ void dumpAnalysis() {
   }
   Serial.printf("  %d mismatch(es), %d key(s) still unidentified\n", bad, unknown);
 
-  // 完整性檢查：64 顆實體鍵應該一對一佔滿 64 個矩陣格
+  // 完整性檢查：58 顆實體鍵應該各佔一個不重複的矩陣格（64 格會空 6 格）
   int claimed = 0, dup = 0;
   uint8_t owners[64] = {0};
   for (int i = 0; i < PHYS_TOTAL; i++) if (phys_rc[i] != 0xFF) { owners[phys_rc[i]]++; claimed++; }
-  Serial.printf("  coverage: %d/64 keys placed\n", claimed);
+  Serial.printf("  coverage: %d/%d keys placed\n", claimed, PHYS_TOTAL);
   for (int rc = 0; rc < 64; rc++) {
     if (owners[rc] == 0) Serial.printf("  [%d][%d] has NO physical key (table holds %s)\n", rc >> 3, rc & 7, describe(keymap_base[rc >> 3][rc & 7]).c_str());
     if (owners[rc] > 1) { dup++; Serial.printf("  [%d][%d] claimed by %d keys  <-- CONFLICT\n", rc >> 3, rc & 7, owners[rc]); }
   }
-  if (claimed == 64 && dup == 0) Serial.println("  map is complete and one-to-one.");
+  if (claimed == PHYS_TOTAL && dup == 0) Serial.println("  map is complete and one-to-one.");
   Serial.println();
 }
 
@@ -344,11 +377,11 @@ void drawString(uint16_t x, uint16_t y, String s, uint16_t color, uint16_t bg) {
 //   SHIFT Z X C V B N M , . /  SHIFT
 //                 SPACE
 //
-// 下面這些是這台 64 鍵機器多出來、II+ 沒有的鍵。反過來 II+ 有而這台沒有的
+// 下面這些是這台 58 鍵機器多出來、II+ 沒有的鍵。反過來 II+ 有而這台沒有的
 // （RESET / REPT / 獨立的 : 鍵）不在檢查器的範圍內，所以兩邊不是一一對應。
 const char* const EXTRA_KEYS[] = {
-  "BS", "TAB", "[", "]", "CAP", "'", "\\", "UP",
-  "FN", "ALT", "PGU", "`", "=", "PGD", "DEL", "DN"
+  "BS", "TAB", "[", "]", "CAP", "'", "\\",
+  "FN", "ALT", "`", "=", "DEL"
 };
 
 // 收 label 而不是 const PhysKey&：.ino 的前處理會把函式原型自動提到檔案最
@@ -536,7 +569,7 @@ void dumpMap() {
   Serial.println();
   Serial.println("// ---- Learned physical -> matrix map ----");
   Serial.println("// value = row*8+col, -1 = not learned");
-  Serial.println("const int8_t PHYS_TO_MATRIX[64] = {");
+  Serial.println("const int8_t PHYS_TO_MATRIX[" + String(PHYS_TOTAL) + "] = {");
   for (int r = 0; r < 5; r++) {
     Serial.print("  ");
     for (int i = 0; i < PHYS_CNT[r]; i++) { Serial.print(learned[physFlat(r, i)]); Serial.print(", "); }
@@ -565,7 +598,12 @@ void setup() {
 
   gpio_init(DATA_OUT_PIN); gpio_set_dir(DATA_OUT_PIN, GPIO_OUT);
   gpio_init(LATCH_PIN);    gpio_set_dir(LATCH_PIN, GPIO_OUT);
+#if KBD_CLK_ON_LCD_DC
+  // CLOCK = LCD D/C，由 tft.begin() 初始化；維持預設驅動力與慢斜率，不改。
+  gpio_init(FREE_CLK_PIN); gpio_set_dir(FREE_CLK_PIN, GPIO_IN); gpio_disable_pulls(FREE_CLK_PIN);
+#else
   gpio_init(CLOCK_PIN);    gpio_set_dir(CLOCK_PIN, GPIO_OUT);
+#endif
 #if KBD_SHARED_DATA
   gpio_disable_pulls(DATA_OUT_PIN);  // 預設下拉 ~50k 會和 1 kΩ 分壓
   gpio_set_dir(DATA_OUT_PIN, GPIO_IN);  // 平時停在輸入
@@ -612,6 +650,7 @@ void setup() {
 
   Serial.println("PicoApple2 Keyboard Tester");
   Serial.println(KBD_MODE_STR);
+  Serial.println(KBD_CLK_ON_LCD_DC ? "kbd CLK on GP20 (LCD D/C)" : "kbd CLK on GP26");
   Serial.println("F=free  G=guided  S=skip  D=dump  M=analysis  R=reset");
   dumpAnalysis();
 }

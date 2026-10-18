@@ -239,8 +239,8 @@ Raspberry Pi Pico (RP2040) + ILI9341 320×240 SPI 顯示器 + 8×8 鍵盤矩陣�
 | 用途 | GPIO |
 |---|---|
 | 矩陣 DATA_OUT / LATCH / CLOCK / DATA_IN | 15 / 14 / 26 / 27 |
-| 顯示器 SCK / MOSI / CS / DC / RST / BL | 18 / 19 / 17 / 20 / 21 / 22 |
-
+| 顯示器 SCK / MOSI / CS / DC / RST / BL | 18 / 19 / 17 / 20 / 21 / 22 |
+
 ### 選配硬體修改：QH 與 SER 共用 GP15（`KBD_SHARED_DATA`）
 
 為了空出 GP27 當 ADC：165 的 QH 割離 GP27，改串 1 kΩ 接到 GP15，與 595 的 SER 共用。
@@ -255,6 +255,20 @@ Raspberry Pi Pico (RP2040) + ILI9341 320×240 SPI 顯示器 + 8×8 鍵盤矩陣�
   「寫滿 16 bit → LATCH↑ → 165 載入（第二次 LATCH↑，此時移位暫存器仍是剛寫的資料）→ 讀 8 bit」，
   下一次 LATCH↑ 前一定重新寫滿，所以垃圾永遠不會被鎖存。**改掃描順序時要守住這條**：
   讀完 165 之後不可以沒重寫就拉 LATCH。
+
+### 選配硬體修改：CLOCK 改接 LCD D/C（`KBD_CLK_ON_LCD_DC`）
+
+595/165 的 CLOCK 從 GP26 改接到 LCD 的 D/C（GP20），GP26 空出（設成無上下拉的輸入）。
+LCD 只在 CS 低時於 SCK 邊緣取樣 D/C，所以 CS 高、SPI 不動時拿 D/C 當時脈 LCD 不理；
+平時畫圖翻 D/C 會讓 595/165 多移幾位，但 LATCH 不動 595 輸出就不變，165 每列都重新載入。
+
+- 編譯開關 `KBD_CLK_ON_LCD_DC`，預設 0 = GP26。改過硬體的板子：
+  `set "KBD_CLK_ON_LCD_DC=1" & build_offset.bat`（可和 `KBD_SHARED_DATA=1` 同時設）。
+- `scanMatrix()` 開頭先 `tft.waitTransferDone()`、再拉一次 CS 高，記下 D/C 電位，掃完還原。
+  本程式單核心、繪圖全是阻塞式，掃描時不會有傳輸進行中；**之後若改成另一核心或 DMA 非同步畫圖，
+  必須先加同步**，否則畫面會花。
+- 595 改用 `shiftOutSlow()`（半週期約 1 µs）；GP20 維持預設驅動力與斜率。
+- 開機序列埠會多印一行 `kbd CLK on GP20 (LCD D/C)` / `kbd CLK on GP26`。
 
 ## 建置
 
