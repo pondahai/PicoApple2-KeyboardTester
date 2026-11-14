@@ -247,9 +247,9 @@ Raspberry Pi Pico (RP2040) + ILI9341 320×240 SPI 顯示器 + 8×8 鍵盤矩陣�
 寫 595 時 GP15 為輸出（隔著 1 kΩ 蓋過 QH），讀 165 前切成輸入、等 1 µs 再讀；GP15 關掉內建下拉
 （約 50k，會和 1 kΩ 分壓），GP27 設成無上下拉的輸入。
 
-- 編譯開關 `KBD_SHARED_DATA`，預設 0 = 原接線。改過硬體的板子要編 1：
-  `arduino-cli compile ... --build-property "compiler.cpp.extra_flags=-DKBD_SHARED_DATA=1"`，
-  或 cmd 下 `set "KBD_SHARED_DATA=1" & build_offset.bat`。
+- 編譯開關 `KBD_SHARED_DATA`，**2026-11 起預設 1 = 現行接線**。舊接線的板子要編 0：
+  `arduino-cli compile ... --build-property "compiler.cpp.extra_flags=-DKBD_SHARED_DATA=0"`，
+  或 cmd 下 `set "KBD_SHARED_DATA=0" & build_offset.bat`。
 - 燒錄後序列埠開機會印 `kbd QH on GP15` / `kbd QH on GP27`，畫面資訊列右上角顯示 `QH GP15` / `QH GP27`。
 - 時序：CLOCK 共用，讀 165 的 8 個時脈也會把 QH 推進 595 移位暫存器。`scanMatrix()` 每列都是
   「寫滿 16 bit → LATCH↑ → 165 載入（第二次 LATCH↑，此時移位暫存器仍是剛寫的資料）→ 讀 8 bit」，
@@ -262,8 +262,8 @@ Raspberry Pi Pico (RP2040) + ILI9341 320×240 SPI 顯示器 + 8×8 鍵盤矩陣�
 LCD 只在 CS 低時於 SCK 邊緣取樣 D/C，所以 CS 高、SPI 不動時拿 D/C 當時脈 LCD 不理；
 平時畫圖翻 D/C 會讓 595/165 多移幾位，但 LATCH 不動 595 輸出就不變，165 每列都重新載入。
 
-- 編譯開關 `KBD_CLK_ON_LCD_DC`，預設 0 = GP26。改過硬體的板子：
-  `set "KBD_CLK_ON_LCD_DC=1" & build_offset.bat`（可和 `KBD_SHARED_DATA=1` 同時設）。
+- 編譯開關 `KBD_CLK_ON_LCD_DC`，**2026-11 起預設 1 = GP20**。舊接線的板子：
+  `set "KBD_CLK_ON_LCD_DC=0" & build_offset.bat`（通常和 `KBD_SHARED_DATA=0` 一起設）。
 - `scanMatrix()` 開頭先 `tft.waitTransferDone()`、再拉一次 CS 高，記下 D/C 電位，掃完還原。
   本程式單核心、繪圖全是阻塞式，掃描時不會有傳輸進行中；**之後若改成另一核心或 DMA 非同步畫圖，
   必須先加同步**，否則畫面會花。

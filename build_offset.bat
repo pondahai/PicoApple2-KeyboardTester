@@ -16,11 +16,10 @@ title KeyboardTester Offset Build
 :: Usage:
 ::     build_offset.bat                  loader repo defaults to ..\rp2040-retro-loader
 ::     build_offset.bat <loader repo path>
-::     set "KBD_SHARED_DATA=1" & build_offset.bat
-::         builds for the modded board (165 QH on GP15 via 1k, GP27 freed).
-::         Default 0 = original wiring (QH on GP27).
-::     set "KBD_CLK_ON_LCD_DC=1" & build_offset.bat
-::         CLOCK moved to LCD D/C (GP20), GP26 freed. Default 0 = GP26.
+::     set "KBD_SHARED_DATA=0" & build_offset.bat
+::         OLD wiring (QH on GP27). Default 1 = current wiring (QH on GP15 via 1k).
+::     set "KBD_CLK_ON_LCD_DC=0" & build_offset.bat
+::         OLD wiring (CLOCK on GP26). Default 1 = CLOCK on LCD D/C (GP20).
 ::
 :: Outputs (all under build_offset\):
 ::     KeyboardTester.ino.uf2          body only, first 16KB empty - NOT flashable alone
@@ -36,8 +35,8 @@ set "PROJECT_ROOT=%SCRIPT_DIR%"
 set "OUT_DIR=%PROJECT_ROOT%build_offset"
 set "OFFSET_LD=%PROJECT_ROOT%loader_offset\memmap_app_arduino.ld"
 set "FQBN=rp2040:rp2040:rpipico"
-if "%KBD_SHARED_DATA%"=="" set "KBD_SHARED_DATA=0"
-if "%KBD_CLK_ON_LCD_DC%"=="" set "KBD_CLK_ON_LCD_DC=0"
+if "%KBD_SHARED_DATA%"=="" set "KBD_SHARED_DATA=1"
+if "%KBD_CLK_ON_LCD_DC%"=="" set "KBD_CLK_ON_LCD_DC=1"
 echo Keyboard mode: KBD_SHARED_DATA=%KBD_SHARED_DATA% KBD_CLK_ON_LCD_DC=%KBD_CLK_ON_LCD_DC%
 
 :: --- locate arduino-cli ---------------------------------------------------

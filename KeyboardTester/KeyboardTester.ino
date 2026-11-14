@@ -37,7 +37,7 @@
 // 拿 D/C 當時脈 LCD 不理；平時畫圖翻 D/C 只會讓 595/165 多移幾位，LATCH 不動就不影響輸出。
 // = 0：原接線，CLOCK 接 GP26。
 #ifndef KBD_CLK_ON_LCD_DC
-#define KBD_CLK_ON_LCD_DC 0
+#define KBD_CLK_ON_LCD_DC 1   // 預設現行接線（rp2040-retro-handheld HARDWARE.md §2.2）
 #endif
 
 #define FREE_CLK_PIN     26
@@ -51,7 +51,7 @@
 // GP27 割線空出（留給 ADC）。寫 595 時 GP15 為輸出（隔 1 kΩ 蓋過 QH），
 // 讀 165 時切成輸入。= 0：原接線，QH 接 GP27。
 #ifndef KBD_SHARED_DATA
-#define KBD_SHARED_DATA  0
+#define KBD_SHARED_DATA  1     // 預設現行接線；舊機器編譯時給 =0
 #endif
 
 #define FREE_ADC_PIN     27
