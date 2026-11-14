@@ -22,12 +22,15 @@ title KeyboardTester Offset Build
 ::         OLD wiring (CLOCK on GP26). Default 1 = CLOCK on LCD D/C (GP20).
 ::
 :: Outputs (all under build_offset\):
-::     KeyboardTester.ino.uf2          body only, first 16KB empty - NOT flashable alone
-::     KeyboardTester_standalone.uf2   trampoline + body - this is the one to use
-::     KeyboardTester_standalone.RAW   menu icon, renamed to match the uf2
+::     KeyboardTester.ino.uf2          body only, first 16KB empty - for the SD card
+::                                     (loader menu). NOT flashable alone over USB.
+::     KeyboardTester.ino.RAW          menu icon for KeyboardTester.ino.uf2
+::     KeyboardTester_standalone.uf2   trampoline + body - for USB flashing only
 ::
-:: This script does not flash. The standalone file works both ways: drop it
-:: in the SD card root for the loader, or picotool load -v -x it directly.
+:: This script does not flash. Naming rule shared by every retro app: the SD
+:: card gets the menu name (KeyboardTester.ino.uf2 + .RAW); the _standalone
+:: name is for USB only. The loader would also accept the standalone file,
+:: but keep the names consistent across apps.
 :: ===========================================================================
 
 set "SCRIPT_DIR=%~dp0"
@@ -125,22 +128,23 @@ python "!LOADER_PATH!\tools\merge_uf2.py" "!LOADER_PATH!\build\trampoline.uf2" ^
 if %errorlevel% neq 0 ( echo [ERROR] merge_uf2.py failed. & pause & exit /b 1 )
 
 :: The loader pairs an icon with a uf2 by filename: strip .uf2, append .RAW.
-:: Copy the asset under the standalone name so both land on the SD card
-:: matching each other.
+:: The SD card gets KeyboardTester.ino.uf2, so the icon goes next to it
+:: under the same base name (retro_sync push picks it up automatically).
 if exist "%PROJECT_ROOT%assets\KeyboardTester.ino.RAW" (
-    copy /y "%PROJECT_ROOT%assets\KeyboardTester.ino.RAW" "%OUT_DIR%\KeyboardTester_standalone.RAW" >nul
-    echo [OK] Menu icon copied as KeyboardTester_standalone.RAW
+    copy /y "%PROJECT_ROOT%assets\KeyboardTester.ino.RAW" "%OUT_DIR%\KeyboardTester.ino.RAW" >nul
+    echo [OK] Menu icon copied as KeyboardTester.ino.RAW
 )
 
 echo.
 echo ========================================================
 echo SUCCESS
 echo ========================================================
-echo   %OUT_DIR%\KeyboardTester_standalone.uf2
+echo   %OUT_DIR%\KeyboardTester.ino.uf2          for the SD card (loader menu)
+echo   %OUT_DIR%\KeyboardTester_standalone.uf2   flashable over USB
 echo   (KBD_SHARED_DATA=%KBD_SHARED_DATA% KBD_CLK_ON_LCD_DC=%KBD_CLK_ON_LCD_DC%)
 echo.
-echo   Put it in the SD card root for the loader (with the .RAW next to it),
-echo   or flash it directly:
+echo   SD card: python retro_sync.py push "%OUT_DIR%\KeyboardTester.ino.uf2"
+echo   USB, no loader on the board:
 echo     picotool load -v -x "%OUT_DIR%\KeyboardTester_standalone.uf2"
 echo.
 echo   Note: picotool load -x is a soft reset, so the loader passes straight

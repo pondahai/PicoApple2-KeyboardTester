@@ -338,15 +338,16 @@ python ../rp2040-retro-loader/tools/merge_uf2.py ../rp2040-retro-loader/build/tr
 * **USB BOOTSEL 拖進去** → 跳板落在 `0x10000000`，開機後跳 `0x10004000`
 * **放進 SD 卡給載入器** → 載入器丟掉 `0x10004000` 以下的 block，其餘照寫，載入器本身不會被蓋掉
 
-所以 SD 卡上放合併版就好，不必為兩種用法各準備一個檔案。
+雖然合併版放 SD 卡也能用，但 SD 卡上請統一放偏移版 `KeyboardTester.ino.uf2`（配 `KeyboardTester.ino.RAW`），
+跟其他 retro app 的命名一致；`_standalone` 的名字只留給 USB 直燒。
 
 三種產物的定位：
 
 | 檔案 | USB 直燒 | 放 SD 給 loader |
 |---|---|---|
 | 一般版（步驟 2，`0x10000000`） | ✅ | ❌ 會蓋掉載入器 |
-| 偏移版 `KeyboardTester.ino.uf2` | ❌ 前 16KB 空的，不開機 | ✅ |
-| **standalone `KeyboardTester_standalone.uf2`** | ✅ | ✅ |
+| **偏移版 `KeyboardTester.ino.uf2`** | ❌ 前 16KB 空的，不開機 | ✅ **SD 卡用這個** |
+| standalone `KeyboardTester_standalone.uf2` | ✅ | 可以，但 SD 卡請用上一列的名字 |
 
 `check_flash_layout.py` 是驗**裸偏移本體**用的，對合併版會回報「image 起點是 `0x10000000`，應該是 `0x10004000`」——
 那是正常的，別拿它驗 standalone。
@@ -365,7 +366,7 @@ GPL-3.0（見 `LICENSE`）。`TFT_DMA.cpp/.h` 取自 PicoApple2。
 
 用法：把它跟 `KeyboardTester.ino.uf2` 一起放 SD 卡**根目錄**（不支援子目錄）。檔名規則是
 UF2 去掉副檔名再接 `.RAW`，也就是 `KeyboardTester.ino.uf2` 配 `KeyboardTester.ino.RAW`。
-若放的是 standalone 版，圖示要跟著改名成 `KeyboardTester_standalone.RAW`。
+`build_offset.bat` 會把它以這個名字複製到 `build_offset\`。SD 卡上不放 standalone 版，所以不需要 `_standalone.RAW`。
 
 要從原圖重新產生：
 
