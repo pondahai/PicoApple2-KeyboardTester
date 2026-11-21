@@ -9,6 +9,7 @@ apple2_char_rom.h
 # ---- 建置產物 ----
 build/
 build_offset/
+loader_offset/memmap_app_arduino.ld
 *.uf2
 *.elf
 *.bin
