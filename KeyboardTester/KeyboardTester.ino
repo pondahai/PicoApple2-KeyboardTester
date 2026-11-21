@@ -161,6 +161,7 @@ inline void kbdDataOut() {
 }
 inline void kbdDataIn() {
 #if KBD_SHARED_DATA
+  fastWrite(DATA_OUT_PIN, 0);  // 先主動放電至 0V，避免未接鍵盤時殘留 Row 0 高電位
   gpio_set_dir(DATA_OUT_PIN, GPIO_IN); delayMicroseconds(1);  // 等 QH 經 1 kΩ 把線拉穩
 #endif
 }
@@ -605,7 +606,8 @@ void setup() {
   gpio_init(CLOCK_PIN);    gpio_set_dir(CLOCK_PIN, GPIO_OUT);
 #endif
 #if KBD_SHARED_DATA
-  gpio_disable_pulls(DATA_OUT_PIN);  // 預設下拉 ~50k 會和 1 kΩ 分壓
+  gpio_pull_down(DATA_OUT_PIN);         // 啟用內部下拉，防止未接鍵盤時浮接誤觸
+  fastWrite(DATA_OUT_PIN, 0);
   gpio_set_dir(DATA_OUT_PIN, GPIO_IN);  // 平時停在輸入
   gpio_init(FREE_ADC_PIN); gpio_set_dir(FREE_ADC_PIN, GPIO_IN); gpio_disable_pulls(FREE_ADC_PIN);
 #else
